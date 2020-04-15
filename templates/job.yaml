@@ -1,0 +1,218 @@
+{{ if .Release.IsInstall }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: createdb-{{ include "appname.fullname" . }}
+  namespace: databases
+  labels:
+    app.kubernetes.io/name: createdb-{{ include "appname.fullname" . }}
+    app.kubernetes.io/managed-by: "helm"
+    helm.sh/chart: {{ .Release.Name }}
+spec:
+  serviceName: "cockroachdb-headless"
+  template:
+    spec:
+      {{- if eq .Values.global.environment "test" }}
+      serviceAccountName: cockroachdb-cockroachdb
+      {{- else }}
+      serviceAccountName: cockroachdb
+      {{- end }}
+      volumes:
+      - name: script
+        configMap:
+          defaultMode: 0700
+          name: cockroachdb-create-database-script
+      {{- if ne .Values.global.environment "eks" }}
+      - name: client-certs
+        emptyDir: {}
+      initContainers:
+      - name: init-certs
+        image: "cockroachdb/cockroach-k8s-request-cert:0.4"
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        command:
+        - "/bin/ash"
+        - "-ecx"
+        - "/request-cert -namespace=databases -certs-dir=/cockroach-certs -type=client -user=root -symlink-ca-from=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        volumeMounts:
+        - name: client-certs
+          mountPath: /cockroach-certs
+      {{- else }}
+      - name: client-certs
+        secret:
+          secretName: cockroachdb-node
+          defaultMode: 0700
+      {{- end }}
+      containers:
+      - name: createdb
+        image: "cockroachdb/cockroach:v19.2.4"
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        volumeMounts:
+        - name: client-certs
+          mountPath: /cockroach-certs
+        command:
+          - /bin/entrypoint.sh
+        env:
+        - name: COCKROACH_USER
+          value: "root"
+        - name: COCKROACHDB_DB_USER
+          value: {{ include "appname.dbs" . }}
+        - name: COCKROACHDB_DB_NAME
+          value: {{ include "appname.dbs" . }}
+        - name: COCKROACHDB_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "appname.fullname" . }}
+              key: DB_PASSWORD
+        volumeMounts:
+        - name: script
+          mountPath: /bin/entrypoint.sh
+          readOnly: true
+          subPath: entrypoint.sh
+        - name: client-certs
+          mountPath: /cockroach/cockroach-certs
+      restartPolicy: OnFailure
+{{ end }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migratedb-{{ include "appname.fullname" . }}
+  labels:
+    app.kubernetes.io/name: migratedb-{{ include "appname.fullname" . }}
+    app.kubernetes.io/managed-by: "helm"
+    helm.sh/chart: {{ .Release.Name }}
+spec:
+  template:
+    metadata:
+      labels:
+        image.version: {{ .Values.image.version | quote }}
+    spec:
+      imagePullSecrets:
+      - name: {{ .Values.global.imagecredentials.registry | quote }}
+      containers:
+        - name: migratedb-{{ include "appname.fullname" . }}
+          image: {{ printf "%s/%s:%s" .Values.global.imagecredentials.registry .Values.image.path .Values.image.version | quote }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          args: ["db", "migrate"]
+          env:
+            {{- range $key, $value := .Values.static_env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "appname.fullname" . }}
+                  key: DB_PASSWORD
+      restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: deletedb-{{ include "appname.fullname" . }}
+  namespace: databases
+  labels:
+    app.kubernetes.io/name: deletedb-{{ include "appname.fullname" . }}
+    app.kubernetes.io/managed-by: "helm"
+    helm.sh/chart: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": "post-delete"
+    "helm.sh/hook-delete-policy": "hook-succeeded"
+spec:
+  serviceName: "cockroachdb-headless"
+  template:
+    metadata:
+    spec:
+      {{- if eq .Values.global.environment "test" }}
+      serviceAccountName: cockroachdb-cockroachdb
+      {{- else }}
+      serviceAccountName: cockroachdb
+      {{- end }}
+      volumes:
+      - name: script
+        configMap:
+          defaultMode: 0700
+          name: cockroachdb-delete-database-script
+      {{- if ne .Values.global.environment "eks" }}
+      - name: client-certs
+        emptyDir: {}
+      initContainers:
+      - name: init-certs
+        image: "cockroachdb/cockroach-k8s-request-cert:0.4"
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        command:
+        - "/bin/ash"
+        - "-ecx"
+        - "/request-cert -namespace=databases -certs-dir=/cockroach-certs -type=client -user=root -symlink-ca-from=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        volumeMounts:
+        - name: client-certs
+          mountPath: /cockroach-certs
+      {{- else }}
+      - name: client-certs
+        secret:
+          secretName: cockroachdb-node
+          defaultMode: 0700
+      {{- end }}
+      containers:
+      - name: deletedb
+        image: "cockroachdb/cockroach:v19.2.4"
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        volumeMounts:
+        - name: client-certs
+          mountPath: /cockroach-certs
+        command:
+          - /bin/entrypoint.sh
+        env:
+        - name: COCKROACH_USER
+          value: "root"
+        - name: COCKROACHDB_DB_NAME
+          value: {{ include "appname.dbs" . }}
+        volumeMounts:
+        - name: script
+          mountPath: /bin/entrypoint.sh
+          readOnly: true
+          subPath: entrypoint.sh
+        - name: client-certs
+          mountPath: /cockroach/cockroach-certs
+      restartPolicy: OnFailure
+---
+{{- if eq .Values.global.environment "eks" }}
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: generate-{{ include "appname.fullname" . }}
+  labels:
+    app.kubernetes.io/name: generate-{{ include "appname.fullname" . }}
+    app.kubernetes.io/managed-by: "helm"
+    helm.sh/chart: {{ .Release.Name }}
+spec:
+  schedule: "01 23 * * *"
+  jobTemplate:
+    metadata:
+      labels:
+        image.version: {{ .Values.image.version | quote }}
+    spec:
+      template:
+        metadata:
+          labels:
+            image.version: {{ .Values.image.version | quote }}
+        spec:
+          imagePullSecrets:
+          - name: {{ .Values.global.imagecredentials.registry | quote }}
+          containers:
+            - name: generate-{{ include "appname.fullname" . }}
+              image: {{ printf "%s/%s:%s" .Values.global.imagecredentials.registry .Values.image.path .Values.image.version | quote }}
+              imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+              args: ["generate"]
+              env:
+                {{- range $key, $value := .Values.static_env }}
+                - name: {{ $key }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "appname.fullname" . }}
+                      key: DB_PASSWORD
+          restartPolicy: OnFailure
+{{- end }}

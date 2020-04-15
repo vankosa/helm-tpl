@@ -1,0 +1,109 @@
+{{- $release := printf "%s-%s" .Chart.Name .Values.global.version | replace "." "-" | replace "_" "-" -}}
+{{- $name := include "appname.name" . -}}
+{{- $fullName := include "appname.fullname" . -}}
+{{- if eq .Release.Name $release }}
+{{- $ingressPath := printf "/%s/%s/%s" .Release.Namespace .Chart.Name .Values.global.version | lower -}}
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}
+  labels:
+    app.kubernetes.io/name: {{ $fullName }}
+    app.kubernetes.io/managed-by: "helm"
+{{- with .Values.global.ingress.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^{{ $ingressPath }}/(.*)$ /$1 break;
+      proxy_pass_request_headers  on;
+{{- end }}
+spec:
+{{- if .Values.global.ingress.tls }}
+  tls:
+  {{- range .Values.global.ingress.tls }}
+    - hosts:
+      {{- range .hosts }}
+        - {{ . | quote }}
+      {{- end }}
+      secretName: {{ .secretName }}
+  {{- end }}
+{{- end }}
+  rules:
+  {{- range .Values.global.ingress.hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: {{ $ingressPath }}
+            backend:
+              serviceName: {{ $fullName }}
+              servicePort: {{ $name }}
+  {{- end }}
+
+{{- else }}
+{{- if ne .Values.global.environment "eks" }}
+{{- $ingressPath := printf "/%s/%s/%s/_%s" .Release.Namespace .Values.global.project .Values.global.version .Chart.Name | lower -}}
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}
+  labels:
+    app.kubernetes.io/name: {{ $fullName }}
+    app.kubernetes.io/managed-by: "helm"
+{{- with .Values.global.ingress.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^{{ $ingressPath }}/(.*)$ /$1 break;
+      proxy_pass_request_headers  on;
+{{- end }}
+spec:
+{{- if .Values.global.ingress.tls }}
+  tls:
+  {{- range .Values.global.ingress.tls }}
+    - hosts:
+      {{- range .hosts }}
+        - {{ . | quote }}
+      {{- end }}
+      secretName: {{ .secretName }}
+  {{- end }}
+{{- end }}
+  rules:
+  {{- range .Values.global.ingress.hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: {{ $ingressPath }}
+            backend:
+              serviceName: {{ $fullName }}
+              servicePort: {{ $name }}
+  {{- end }}
+{{- end }}
+---
+{{- $smallPath := printf "/%s" .Chart.Name | lower -}}
+{{- $ingressclass := printf "%s" .Release.Name -}}
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-internal
+  labels:
+    app.kubernetes.io/name: {{ $fullName }}
+    app.kubernetes.io/managed-by: "helm"
+    ingresstag: {{ .Release.Name }}
+{{- with .Values.global.ingress.internal.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+    kubernetes.io/ingress.class: {{ $ingressclass }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      rewrite ^{{ $smallPath }}/(.*)$ /$1 break;
+      proxy_pass_request_headers  on;
+{{- end }}
+spec:
+  rules:
+    - host: nginx-{{ .Release.Name }}.{{ .Release.Namespace }}
+      http:
+        paths:
+          - path: {{ $smallPath }}
+            backend:
+              serviceName: {{ $fullName }}
+              servicePort: {{ $name }}
+{{- end }}

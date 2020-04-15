@@ -1,0 +1,54 @@
+global:
+  imagecredentials:
+    registry: "dockerhub.io"
+
+  image:
+    pullPolicy: "IfNotPresent"
+
+  service:
+    annotations:
+      prometheus.io/scrape: "false"
+    type: ClusterIP
+
+  ingress:
+    annotations:
+      prometheus.io/scrape: "false"
+      ingress.kubernetes.io/rewrite-target: /
+      kubernetes.io/ingress.class: nginx
+    hosts:
+    - k8s.example.com
+
+    internal:
+      annotations:
+        prometheus.io/scrape: "false"
+        ingress.kubernetes.io/rewrite-target: /
+
+replicaCount: 3
+
+static_env:
+  HTTP_HOST: "0.0.0.0"
+  HTTP_PORT: "80"
+  DB_TYPE: "POSTGRESQL"
+  DB_HOST: "postgresql.databases"
+  DB_PORT: "26257"
+  LOGGING_LEVEL: "INFO"
+  LOGGING_OUTPUT: "STDOUT"
+  LOGGING_FORMAT: "JSON"
+  MQ_HOST: "vernemq.brokers"
+  MQ_LOGIN: "mqlogin"
+  MQ_PORT: "1883"
+  MQ_QOS: "2"
+  MQ_CLEANSESSION: "false"
+
+env:
+  MQ_TOPICIN: "services/IN"
+  MQ_TOPICOUT: "services/OUT"
+  MQ_TOPICSYNC: "services/SYNC"
+
+secrets:
+  DB_PASSWORD: "pa$$wd_DB"
+  MQ_PASSWORD: "pa$$wd_mq"
+
+image:
+  path: "appname"
+  version: "develop"

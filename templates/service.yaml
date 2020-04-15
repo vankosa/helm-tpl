@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "appname.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "appname.fullname" . }}
+    app.kubernetes.io/managed-by: "helm"
+    helm.sh/chart: {{ include "appname.name" . }}-{{ include "appname.release" . }}
+{{- with .Values.global.service.annotations }}
+  annotations:
+{{ toYaml . | indent 4 }}
+{{- end }}
+spec:
+  ports:
+  - name: {{ include "appname.name" . }}
+    port: {{ .Values.static_env.HTTP_PORT }}
+    targetPort: {{ .Values.static_env.HTTP_PORT }}
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "appname.fullname" . }}
