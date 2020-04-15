@@ -26,7 +26,3 @@ helm delete --purge appname-branch
 6. `templates/ingress.yaml` - описывает внешний доступ к приложению;
 7. `templates/secrets.yaml` - описывает секреты, пароли, ключи;
 8. `templates/_helpers.tpl` - содержит различные шаблоны, применяемые в чарте;
-
-## CI
-
-`.gitlab-ci.yml` описывает указание версии чарта в `Chart.yaml`, упаковку манифестов в архив и отправку этого архива в artifactory.
